@@ -17,7 +17,7 @@ import time
 from typing import Any, Literal
 
 import click
-from pydantic import AnyHttpUrl, field_validator
+from pydantic import AnyHttpUrl, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
@@ -282,7 +282,11 @@ class StaticallyRegisteredClientProvider(OAuthAuthorizationServerProvider[Author
 class StaticallyRegisteredSettings(BaseSettings):
     """Settings for the statically registered OAuth MCP server."""
 
-    model_config = SettingsConfigDict(env_prefix="MCP_STATIC_")
+    model_config = SettingsConfigDict(
+        env_prefix="MCP_STATIC_",
+        env_ignore_empty=True,
+        # We'll handle redirect_uris parsing manually in validator
+    )
 
     # Server settings
     host: str = "0.0.0.0"  # Listen on all interfaces for production deployment
@@ -299,17 +303,18 @@ class StaticallyRegisteredSettings(BaseSettings):
     # OAuth settings
     mcp_scope: str = "user"
     auth_callback_path: str = "http://localhost:8003/login"
-    # Redirect URIs for OAuth client (comma-separated in env var, e.g., "uri1,uri2")
-    redirect_uris: list[str] = ["http://localhost:3031/callback"]
+    # Redirect URIs for OAuth client (stored as string to avoid JSON parsing issues)
+    # Use alias so environment variable MCP_STATIC_REDIRECT_URIS maps to this field
+    _redirect_uris_str: str = Field(default="http://localhost:3031/callback", alias="redirect_uris")
     
-    @field_validator("redirect_uris", mode="before")
-    @classmethod
-    def parse_redirect_uris(cls, v: str | list[str]) -> list[str]:
-        """Parse redirect URIs from string (comma-separated) or list."""
-        if isinstance(v, str):
-            # Support comma-separated string from environment variable
-            return [uri.strip() for uri in v.split(",") if uri.strip()]
-        return v
+    @property
+    def redirect_uris(self) -> list[str]:
+        """Parse redirect URIs from comma-separated string to list."""
+        if not self._redirect_uris_str:
+            return ["http://localhost:3031/callback"]
+        # Parse comma-separated string
+        uris = [uri.strip() for uri in self._redirect_uris_str.split(",") if uri.strip()]
+        return uris if uris else ["http://localhost:3031/callback"]
 
 
 def create_combined_mcp_server(settings: StaticallyRegisteredSettings) -> FastMCP:
