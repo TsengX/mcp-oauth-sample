@@ -17,7 +17,7 @@ import time
 from typing import Any, Literal
 
 import click
-from pydantic import AnyHttpUrl
+from pydantic import AnyHttpUrl, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
@@ -58,6 +58,7 @@ class StaticallyRegisteredClientProvider(OAuthAuthorizationServerProvider[Author
         server_url: str,
         pre_registered_client_id: str,
         pre_registered_client_secret: str,
+        redirect_uris: list[str],
         mcp_scope: str = "user",
     ):
         self.auth_callback_url = auth_callback_url
@@ -73,7 +74,7 @@ class StaticallyRegisteredClientProvider(OAuthAuthorizationServerProvider[Author
             client_id=pre_registered_client_id,
             client_secret=pre_registered_client_secret,
             client_name="Pre-registered MCP Client",
-            redirect_uris=["http://localhost:3031/callback"],  # Match your Java client
+            redirect_uris=redirect_uris,
             grant_types=["authorization_code", "refresh_token"],
             response_types=["code"],
             token_endpoint_auth_method="client_secret_post",
@@ -284,8 +285,10 @@ class StaticallyRegisteredSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="MCP_STATIC_")
 
     # Server settings
-    host: str = "localhost"
+    host: str = "0.0.0.0"  # Listen on all interfaces for production deployment
     port: int = 8003
+    # Public URL for OAuth callbacks and redirects (should be your public domain)
+    public_url: str = "http://localhost:8003"
     server_url: AnyHttpUrl = AnyHttpUrl("http://localhost:8003")
 
     # Pre-registered OAuth client credentials
@@ -296,15 +299,31 @@ class StaticallyRegisteredSettings(BaseSettings):
     # OAuth settings
     mcp_scope: str = "user"
     auth_callback_path: str = "http://localhost:8003/login"
+    # Redirect URIs for OAuth client (comma-separated in env var, e.g., "uri1,uri2")
+    redirect_uris: list[str] = ["http://localhost:3031/callback"]
+    
+    @field_validator("redirect_uris", mode="before")
+    @classmethod
+    def parse_redirect_uris(cls, v: str | list[str]) -> list[str]:
+        """Parse redirect URIs from string (comma-separated) or list."""
+        if isinstance(v, str):
+            # Support comma-separated string from environment variable
+            return [uri.strip() for uri in v.split(",") if uri.strip()]
+        return v
 
 
 def create_combined_mcp_server(settings: StaticallyRegisteredSettings) -> FastMCP:
     """Create combined MCP server with OAuth and MCP on the same port."""
+    # Use public_url for OAuth callbacks and redirects
+    public_base_url = settings.public_url.rstrip("/")
+    auth_callback_url = f"{public_base_url}/login"
+    
     oauth_provider = StaticallyRegisteredClientProvider(
-        auth_callback_url=settings.auth_callback_path,
+        auth_callback_url=auth_callback_url,
         server_url=str(settings.server_url),
         pre_registered_client_id=settings.client_id,
         pre_registered_client_secret=settings.client_secret,
+        redirect_uris=settings.redirect_uris,
         mcp_scope=settings.mcp_scope,
     )
 
@@ -407,13 +426,16 @@ def run_server(settings: StaticallyRegisteredSettings):
     # Create combined FastMCP server
     mcp_server = create_combined_mcp_server(settings)
     
+    public_base_url = settings.public_url.rstrip("/")
     logger.info(f"🚀 Combined MCP Server with Static OAuth Client")
-    logger.info(f"   Server URL: http://{settings.host}:{settings.port}")
+    logger.info(f"   Listening on: {settings.host}:{settings.port}")
+    logger.info(f"   Public URL: {public_base_url}")
     logger.info(f"   OAuth endpoints:")
-    logger.info(f"     - Authorization: http://{settings.host}:{settings.port}/authorize")
-    logger.info(f"     - Token: http://{settings.host}:{settings.port}/token")
-    logger.info(f"     - Login: http://{settings.host}:{settings.port}/login")
-    logger.info(f"   MCP endpoint: http://{settings.host}:{settings.port}/mcp")
+    logger.info(f"     - Authorization: {public_base_url}/authorize")
+    logger.info(f"     - Token: {public_base_url}/token")
+    logger.info(f"     - Login: {public_base_url}/login")
+    logger.info(f"   MCP endpoint: {public_base_url}/mcp")
+    logger.info(f"   Redirect URIs: {', '.join(settings.redirect_uris)}")
     logger.info(f"🔑 Pre-registered client_id: {settings.client_id}")
     logger.info(f"⚠️  Client secret: {settings.client_secret[:10]}... (change in production!)")
     
@@ -423,42 +445,60 @@ def run_server(settings: StaticallyRegisteredSettings):
 
 @click.command()
 @click.option("--port", default=9003, help="Port to listen on")
+@click.option("--host", default="0.0.0.0", help="Host to bind to (use 0.0.0.0 for all interfaces)")
+@click.option("--public-url", default=None, help="Public URL for OAuth callbacks (e.g., https://yourdomain.com)")
 @click.option("--client-id", default="static-mcp-client-001", help="Pre-registered client ID")
 @click.option("--client-secret", default="your-secret-key-change-this-in-production", help="Pre-registered client secret")
-def main(port: int, client_id: str, client_secret: str) -> int:
+@click.option("--redirect-uris", default=None, help="Comma-separated redirect URIs (e.g., 'http://client1.com/callback,http://client2.com/callback')")
+def main(port: int, host: str, public_url: str | None, client_id: str, client_secret: str, redirect_uris: str | None) -> int:
     """
     Run MCP Server with Pre-registered OAuth Client.
     
     This server combines OAuth authorization and MCP functionality on the same port.
     Uses a pre-registered OAuth client instead of dynamic registration.
     
-    Endpoints:
-        - MCP: http://localhost:{port}/mcp
-        - OAuth authorize: http://localhost:{port}/authorize
-        - OAuth token: http://localhost:{port}/token
-        - Login page: http://localhost:{port}/login
-    
     Example usage:
-        # Use default port and credentials
+        # Use default settings (localhost)
         uv run mcp-static-auth
         
-        # Specify custom port and credentials
-        uv run mcp-static-auth --port 9003 \\
+        # Deploy on public server
+        uv run mcp-static-auth \\
+            --host 0.0.0.0 \\
+            --port 8003 \\
+            --public-url https://yourdomain.com \\
+            --redirect-uris "https://client.com/callback,https://client2.com/callback" \\
             --client-id "my-client-001" \\
             --client-secret "my-secure-secret"
     """
     logging.basicConfig(level=logging.INFO)
 
-    # Create server settings
-    host = "localhost"
-    server_url = f"http://{host}:{port}"
+    # Determine public URL (use provided or construct from host/port)
+    if public_url is None:
+        # If host is 0.0.0.0, use localhost for public URL (for local dev)
+        if host == "0.0.0.0":
+            public_url = f"http://localhost:{port}"
+        else:
+            public_url = f"http://{host}:{port}"
+    
+    server_url = public_url
+    
+    # Parse redirect URIs
+    if redirect_uris is None:
+        # Default redirect URIs based on public URL
+        redirect_uris_list = [f"{public_url.rstrip('/')}/callback"]
+    else:
+        # Split comma-separated URIs
+        redirect_uris_list = [uri.strip() for uri in redirect_uris.split(",") if uri.strip()]
+    
     settings = StaticallyRegisteredSettings(
         host=host,
         port=port,
+        public_url=public_url,
         server_url=AnyHttpUrl(server_url),
-        auth_callback_path=f"{server_url}/login",
+        auth_callback_path=f"{public_url.rstrip('/')}/login",
         client_id=client_id,
         client_secret=client_secret,
+        redirect_uris=redirect_uris_list,
     )
 
     try:
