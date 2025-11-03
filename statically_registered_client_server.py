@@ -529,19 +529,23 @@ def main(port: int, host: str, public_url: str | None, client_id: str, client_se
     server_url = public_url
     
     # Parse redirect URIs - convert to comma-separated string for settings
-    if redirect_uris is None:
-        # Default redirect URIs based on public URL
-        redirect_uris_str = f"{public_url.rstrip('/')}/callback"
-        logger.info(f"📝 Using default redirect_uris (from public_url): {redirect_uris_str}")
-    else:
-        # Use as-is (already comma-separated string)
-        redirect_uris_str = redirect_uris
-        logger.info(f"📝 Using redirect_uris from command line: {redirect_uris_str}")
-    
-    # Debug: Check environment variable
     import os
     env_redirect_uris = os.getenv("MCP_STATIC_REDIRECT_URIS")
     logger.info(f"📝 Environment variable MCP_STATIC_REDIRECT_URIS: {env_redirect_uris}")
+    
+    # Priority: command line > environment variable > default
+    if redirect_uris is not None:
+        # Use command line parameter (highest priority)
+        redirect_uris_str = redirect_uris
+        logger.info(f"📝 Using redirect_uris from command line: {redirect_uris_str}")
+    elif env_redirect_uris:
+        # Use environment variable (if no command line parameter)
+        redirect_uris_str = env_redirect_uris
+        logger.info(f"📝 Using redirect_uris from environment variable: {redirect_uris_str}")
+    else:
+        # Default redirect URIs based on public URL (fallback)
+        redirect_uris_str = f"{public_url.rstrip('/')}/callback"
+        logger.info(f"📝 Using default redirect_uris (from public_url): {redirect_uris_str}")
     
     settings = StaticallyRegisteredSettings(
         host=host,
