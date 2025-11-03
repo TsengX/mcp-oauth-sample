@@ -440,9 +440,14 @@ def run_server(settings: StaticallyRegisteredSettings):
     logger.info(f"     - Token: {public_base_url}/token")
     logger.info(f"     - Login: {public_base_url}/login")
     logger.info(f"   MCP endpoint: {public_base_url}/mcp")
-    logger.info(f"   Redirect URIs: {', '.join(settings.redirect_uris)}")
     logger.info(f"🔑 Pre-registered client_id: {settings.client_id}")
     logger.info(f"⚠️  Client secret: {settings.client_secret[:10]}... (change in production!)")
+    logger.info(f"")
+    logger.info(f"📋 Registered Redirect URIs (客户端必须使用这些 URI):")
+    for i, uri in enumerate(settings.redirect_uris, 1):
+        logger.info(f"     {i}. {uri}")
+    logger.info(f"")
+    logger.info(f"💡 提示: 如果客户端使用其他 redirect_uri，请将其添加到环境变量或启动参数中")
     
     # Run the server with streamable-http transport
     mcp_server.run(transport="streamable-http")
