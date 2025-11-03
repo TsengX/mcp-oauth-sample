@@ -70,6 +70,12 @@ class StaticallyRegisteredClientProvider(OAuthAuthorizationServerProvider[Author
         self.pre_registered_client_secret = pre_registered_client_secret
         
         # Create a single pre-registered client
+        # Log the redirect_uris being registered for debugging
+        logger.info(f"🔧 Registering OAuth client:")
+        logger.info(f"   Input redirect_uris type: {type(redirect_uris)}")
+        logger.info(f"   Input redirect_uris value: {redirect_uris}")
+        logger.info(f"   Input redirect_uris length: {len(redirect_uris) if isinstance(redirect_uris, list) else 'N/A'}")
+        
         self.pre_registered_client = OAuthClientInformationFull(
             client_id=pre_registered_client_id,
             client_secret=pre_registered_client_secret,
@@ -80,6 +86,15 @@ class StaticallyRegisteredClientProvider(OAuthAuthorizationServerProvider[Author
             token_endpoint_auth_method="client_secret_post",
         )
         
+        # Verify the client was created correctly
+        logger.info(f"🔍 Client created successfully:")
+        logger.info(f"   Stored redirect_uris type: {type(self.pre_registered_client.redirect_uris)}")
+        logger.info(f"   Stored redirect_uris value: {self.pre_registered_client.redirect_uris}")
+        logger.info(f"   Stored redirect_uris length: {len(self.pre_registered_client.redirect_uris)}")
+        logger.info(f"   Individual URIs:")
+        for i, uri in enumerate(self.pre_registered_client.redirect_uris, 1):
+            logger.info(f"     {i}. '{uri}' (type: {type(uri)})")
+        
         # State management
         self.auth_codes: dict[str, AuthorizationCode] = {}
         self.tokens: dict[str, AccessToken] = {}
@@ -89,7 +104,12 @@ class StaticallyRegisteredClientProvider(OAuthAuthorizationServerProvider[Author
     async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:
         """Get OAuth client information."""
         if client_id == self.pre_registered_client_id:
+            # Debug: Log the client being returned
+            logger.info(f"🔍 get_client called with client_id: {client_id}")
+            logger.info(f"   Returning client with redirect_uris: {self.pre_registered_client.redirect_uris}")
+            logger.info(f"   Redirect URIs count: {len(self.pre_registered_client.redirect_uris)}")
             return self.pre_registered_client
+        logger.warning(f"❌ get_client: Unknown client_id: {client_id}")
         return None
 
     async def register_client(self, client_info: OAuthClientInformationFull):
@@ -103,11 +123,19 @@ class StaticallyRegisteredClientProvider(OAuthAuthorizationServerProvider[Author
 
     async def authorize(self, client: OAuthClientInformationFull, params: AuthorizationParams) -> str:
         """Generate an authorization URL for simple login flow."""
+        # Debug logging for redirect_uri validation
+        requested_redirect_uri = str(params.redirect_uri)
+        registered_uris = client.redirect_uris
+        logger.info(f"🔍 OAuth authorize request:")
+        logger.info(f"   Requested redirect_uri: {requested_redirect_uri}")
+        logger.info(f"   Registered redirect_uris: {registered_uris}")
+        logger.info(f"   Redirect URI match: {requested_redirect_uri in registered_uris}")
+        
         state = params.state or secrets.token_hex(16)
 
         # Store state mapping for callback
         self.state_mapping[state] = {
-            "redirect_uri": str(params.redirect_uri),
+            "redirect_uri": requested_redirect_uri,
             "code_challenge": params.code_challenge,
             "redirect_uri_provided_explicitly": str(params.redirect_uri_provided_explicitly),
             "client_id": client.client_id,
@@ -323,12 +351,20 @@ def create_combined_mcp_server(settings: StaticallyRegisteredSettings) -> FastMC
     public_base_url = settings.public_url.rstrip("/")
     auth_callback_url = f"{public_base_url}/login"
     
+    # Debug: Log the redirect_uris being passed
+    redirect_uris_list = settings.redirect_uris
+    logger.info(f"🔧 Creating OAuth provider with redirect_uris:")
+    for i, uri in enumerate(redirect_uris_list, 1):
+        logger.info(f"   {i}. {uri}")
+    logger.info(f"   Total count: {len(redirect_uris_list)}")
+    logger.info(f"   Type: {type(redirect_uris_list)}")
+    
     oauth_provider = StaticallyRegisteredClientProvider(
         auth_callback_url=auth_callback_url,
         server_url=str(settings.server_url),
         pre_registered_client_id=settings.client_id,
         pre_registered_client_secret=settings.client_secret,
-        redirect_uris=settings.redirect_uris,
+        redirect_uris=redirect_uris_list,
         mcp_scope=settings.mcp_scope,
     )
 
@@ -496,9 +532,16 @@ def main(port: int, host: str, public_url: str | None, client_id: str, client_se
     if redirect_uris is None:
         # Default redirect URIs based on public URL
         redirect_uris_str = f"{public_url.rstrip('/')}/callback"
+        logger.info(f"📝 Using default redirect_uris (from public_url): {redirect_uris_str}")
     else:
         # Use as-is (already comma-separated string)
         redirect_uris_str = redirect_uris
+        logger.info(f"📝 Using redirect_uris from command line: {redirect_uris_str}")
+    
+    # Debug: Check environment variable
+    import os
+    env_redirect_uris = os.getenv("MCP_STATIC_REDIRECT_URIS")
+    logger.info(f"📝 Environment variable MCP_STATIC_REDIRECT_URIS: {env_redirect_uris}")
     
     settings = StaticallyRegisteredSettings(
         host=host,
@@ -510,6 +553,11 @@ def main(port: int, host: str, public_url: str | None, client_id: str, client_se
         client_secret=client_secret,
         redirect_uris=redirect_uris_str,  # Pass as string, will be parsed by property
     )
+    
+    # Debug: Log what was actually parsed
+    logger.info(f"📝 Settings.redirect_uris_str: {settings.redirect_uris_str}")
+    logger.info(f"📝 Settings.redirect_uris (property): {settings.redirect_uris}")
+    logger.info(f"📝 Settings.redirect_uris type: {type(settings.redirect_uris)}")
 
     try:
         run_server(settings)
