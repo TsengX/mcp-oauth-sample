@@ -305,15 +305,15 @@ class StaticallyRegisteredSettings(BaseSettings):
     auth_callback_path: str = "http://localhost:8003/login"
     # Redirect URIs for OAuth client (stored as string to avoid JSON parsing issues)
     # Use alias so environment variable MCP_STATIC_REDIRECT_URIS maps to this field
-    _redirect_uris_str: str = Field(default="http://localhost:3031/callback", alias="redirect_uris")
+    redirect_uris_str: str = Field(default="http://localhost:3031/callback", alias="redirect_uris")
     
     @property
     def redirect_uris(self) -> list[str]:
         """Parse redirect URIs from comma-separated string to list."""
-        if not self._redirect_uris_str:
+        if not self.redirect_uris_str:
             return ["http://localhost:3031/callback"]
         # Parse comma-separated string
-        uris = [uri.strip() for uri in self._redirect_uris_str.split(",") if uri.strip()]
+        uris = [uri.strip() for uri in self.redirect_uris_str.split(",") if uri.strip()]
         return uris if uris else ["http://localhost:3031/callback"]
 
 
@@ -487,13 +487,13 @@ def main(port: int, host: str, public_url: str | None, client_id: str, client_se
     
     server_url = public_url
     
-    # Parse redirect URIs
+    # Parse redirect URIs - convert to comma-separated string for settings
     if redirect_uris is None:
         # Default redirect URIs based on public URL
-        redirect_uris_list = [f"{public_url.rstrip('/')}/callback"]
+        redirect_uris_str = f"{public_url.rstrip('/')}/callback"
     else:
-        # Split comma-separated URIs
-        redirect_uris_list = [uri.strip() for uri in redirect_uris.split(",") if uri.strip()]
+        # Use as-is (already comma-separated string)
+        redirect_uris_str = redirect_uris
     
     settings = StaticallyRegisteredSettings(
         host=host,
@@ -503,7 +503,7 @@ def main(port: int, host: str, public_url: str | None, client_id: str, client_se
         auth_callback_path=f"{public_url.rstrip('/')}/login",
         client_id=client_id,
         client_secret=client_secret,
-        redirect_uris=redirect_uris_list,
+        redirect_uris=redirect_uris_str,  # Pass as string, will be parsed by property
     )
 
     try:
