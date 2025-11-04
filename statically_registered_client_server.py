@@ -250,17 +250,35 @@ class StaticallyRegisteredClientProvider(OAuthAuthorizationServerProvider[Author
         self, client: OAuthClientInformationFull, authorization_code: str
     ) -> AuthorizationCode | None:
         """Load an authorization code."""
-        return self.auth_codes.get(authorization_code)
+        logger.info(f"🔍 load_authorization_code called:")
+        logger.info(f"   client_id: {client.client_id}")
+        logger.info(f"   authorization_code: {authorization_code}")
+        logger.info(f"   Available codes: {list(self.auth_codes.keys())}")
+        
+        code = self.auth_codes.get(authorization_code)
+        if code:
+            logger.info(f"   ✅ Code found: {code.code}")
+        else:
+            logger.warning(f"   ❌ Code not found!")
+        return code
 
     async def exchange_authorization_code(
         self, client: OAuthClientInformationFull, authorization_code: AuthorizationCode
     ) -> OAuthToken:
         """Exchange authorization code for tokens."""
+        logger.info(f"🔍 exchange_authorization_code called:")
+        logger.info(f"   client_id: {client.client_id}")
+        logger.info(f"   authorization_code: {authorization_code.code}")
+        logger.info(f"   redirect_uri: {authorization_code.redirect_uri}")
+        logger.info(f"   scopes: {authorization_code.scopes}")
+        
         if authorization_code.code not in self.auth_codes:
+            logger.error(f"   ❌ Invalid authorization code: {authorization_code.code}")
             raise ValueError("Invalid authorization code")
 
         # Generate access token
         mcp_token = f"mcp_{secrets.token_hex(32)}"
+        logger.info(f"   ✅ Generated access token: {mcp_token[:20]}...")
 
         # Store token
         self.tokens[mcp_token] = AccessToken(
@@ -272,6 +290,7 @@ class StaticallyRegisteredClientProvider(OAuthAuthorizationServerProvider[Author
         )
 
         del self.auth_codes[authorization_code.code]
+        logger.info(f"   ✅ Authorization code exchanged, token stored")
 
         return OAuthToken(
             access_token=mcp_token,
