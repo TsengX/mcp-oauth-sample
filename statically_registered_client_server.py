@@ -94,6 +94,10 @@ class StaticallyRegisteredClientProvider(OAuthAuthorizationServerProvider[Author
         logger.info(f"   Individual URIs:")
         for i, uri in enumerate(self.pre_registered_client.redirect_uris, 1):
             logger.info(f"     {i}. '{uri}' (type: {type(uri)})")
+        logger.info(f"   Client ID: {self.pre_registered_client.client_id}")
+        logger.info(f"   Client Secret: {self.pre_registered_client.client_secret} (完整值用于调试)")
+        logger.info(f"   Expected client_id: {self.pre_registered_client_id}")
+        logger.info(f"   Expected client_secret: {self.pre_registered_client_secret} (完整值用于调试)")
         
         # State management
         self.auth_codes: dict[str, AuthorizationCode] = {}
@@ -106,8 +110,11 @@ class StaticallyRegisteredClientProvider(OAuthAuthorizationServerProvider[Author
         if client_id == self.pre_registered_client_id:
             # Debug: Log the client being returned
             logger.info(f"🔍 get_client called with client_id: {client_id}")
+            logger.info(f"   Expected client_id: {self.pre_registered_client_id}")
             logger.info(f"   Returning client with redirect_uris: {self.pre_registered_client.redirect_uris}")
             logger.info(f"   Redirect URIs count: {len(self.pre_registered_client.redirect_uris)}")
+            logger.info(f"   Client secret (first 10 chars): {self.pre_registered_client.client_secret[:10]}...")
+            logger.info(f"   Stored client_secret: {self.pre_registered_client_secret[:10]}...")
             return self.pre_registered_client
         logger.warning(f"❌ get_client: Unknown client_id: {client_id}")
         return None
@@ -496,7 +503,8 @@ def run_server(settings: StaticallyRegisteredSettings):
     logger.info(f"     - Login: {public_base_url}/login")
     logger.info(f"   MCP endpoint: {public_base_url}/mcp")
     logger.info(f"🔑 Pre-registered client_id: {settings.client_id}")
-    logger.info(f"⚠️  Client secret: {settings.client_secret[:10]}... (change in production!)")
+    logger.info(f"⚠️  Client secret: {settings.client_secret} (完整值)")
+    logger.info(f"💡 提示: 客户端必须使用相同的 client_id 和 client_secret")
     logger.info(f"")
     logger.info(f"📋 Registered Redirect URIs (客户端必须使用这些 URI):")
     for i, uri in enumerate(settings.redirect_uris, 1):
