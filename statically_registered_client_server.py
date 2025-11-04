@@ -520,10 +520,10 @@ def run_server(settings: StaticallyRegisteredSettings):
 @click.option("--port", default=9003, help="Port to listen on")
 @click.option("--host", default="0.0.0.0", help="Host to bind to (use 0.0.0.0 for all interfaces)")
 @click.option("--public-url", default=None, help="Public URL for OAuth callbacks (e.g., https://yourdomain.com)")
-@click.option("--client-id", default="static-mcp-client-001", help="Pre-registered client ID")
-@click.option("--client-secret", default="your-secret-key-change-this-in-production", help="Pre-registered client secret")
+@click.option("--client-id", default=None, help="Pre-registered client ID")
+@click.option("--client-secret", default=None, help="Pre-registered client secret")
 @click.option("--redirect-uris", default=None, help="Comma-separated redirect URIs (e.g., 'http://client1.com/callback,http://client2.com/callback')")
-def main(port: int, host: str, public_url: str | None, client_id: str, client_secret: str, redirect_uris: str | None) -> int:
+def main(port: int, host: str, public_url: str | None, client_id: str | None, client_secret: str | None, redirect_uris: str | None) -> int:
     """
     Run MCP Server with Pre-registered OAuth Client.
     
@@ -558,7 +558,35 @@ def main(port: int, host: str, public_url: str | None, client_id: str, client_se
     # Parse redirect URIs - convert to comma-separated string for settings
     import os
     env_redirect_uris = os.getenv("MCP_STATIC_REDIRECT_URIS")
-    logger.info(f"📝 Environment variable MCP_STATIC_REDIRECT_URIS: {env_redirect_uris}")
+    env_client_id = os.getenv("MCP_STATIC_CLIENT_ID")
+    env_client_secret = os.getenv("MCP_STATIC_CLIENT_SECRET")
+    
+    logger.info(f"📝 Environment variables:")
+    logger.info(f"   MCP_STATIC_REDIRECT_URIS: {env_redirect_uris}")
+    logger.info(f"   MCP_STATIC_CLIENT_ID: {env_client_id}")
+    logger.info(f"   MCP_STATIC_CLIENT_SECRET: {env_client_secret}")
+    
+    # Handle client_id priority: command line > environment variable > default
+    if client_id is not None:
+        final_client_id = client_id
+        logger.info(f"📝 Using client_id from command line: {final_client_id}")
+    elif env_client_id:
+        final_client_id = env_client_id
+        logger.info(f"📝 Using client_id from environment variable: {final_client_id}")
+    else:
+        final_client_id = "static-mcp-client-001"
+        logger.info(f"📝 Using default client_id: {final_client_id}")
+    
+    # Handle client_secret priority: command line > environment variable > default
+    if client_secret is not None:
+        final_client_secret = client_secret
+        logger.info(f"📝 Using client_secret from command line: {final_client_secret}")
+    elif env_client_secret:
+        final_client_secret = env_client_secret
+        logger.info(f"📝 Using client_secret from environment variable: {final_client_secret}")
+    else:
+        final_client_secret = "your-secret-key-change-this-in-production"
+        logger.info(f"📝 Using default client_secret: {final_client_secret}")
     
     # Priority: command line > environment variable > default
     if redirect_uris is not None:
@@ -580,8 +608,8 @@ def main(port: int, host: str, public_url: str | None, client_id: str, client_se
         public_url=public_url,
         server_url=AnyHttpUrl(server_url),
         auth_callback_path=f"{public_url.rstrip('/')}/login",
-        client_id=client_id,
-        client_secret=client_secret,
+        client_id=final_client_id,
+        client_secret=final_client_secret,
         redirect_uris=redirect_uris_str,  # Pass as string, will be parsed by property
     )
     
